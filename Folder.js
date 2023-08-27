@@ -69,11 +69,14 @@ Object.defineProperty(Folder.prototype, 'rename', {
             const prev = java.nio.file.Paths.get(this.path)
             this.path = this.path.split('/')
             this.path[this.path.length-1] = name
-            return java.nio.file.Files.move(
-                prev,
-                java.nio.file.Paths.get(this.path = this.path.join('/')),
-                java.nio.file.StandardCopyOption.ATOMIC_MOVE
-                )
+            this.path = this.path.join('/')
+            if(java.nio.file.Files.exists(prev)){
+                return java.nio.file.Files.move(
+                    prev,
+                    java.nio.file.Paths.get(this.path),
+                    java.nio.file.StandardCopyOption.ATOMIC_MOVE)
+            }
+            return false
         } else {
             throw new TypeError("Folder.rename - name must be a string")
         }
@@ -216,8 +219,11 @@ Object.defineProperty(Folder.prototype, 'delete', {
                 if(target instanceof Folder){
                     delete this.$contents[req[0]]
                     return target.delete(req.slice(1), code)
+                } else if(target instanceof Document){
+                    delete this.$contents[req[0]]
+                    return target.deleteAll(Document.DELETE_CODE)
                 }
-                throw new Error("Folder.delete - invalid path " + req)
+                throw new Error("Folder.delete - invalid path " + req[0])
             } else if(typeof req === "string" && req.length !== 0){
                 return this.delete(req.split('/'), code)
             } else {

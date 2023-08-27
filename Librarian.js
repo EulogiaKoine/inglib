@@ -76,9 +76,26 @@ Object.defineProperty(Librarian.prototype, 'tree', {
 })
 
 Object.defineProperty(Librarian.prototype, 'load', {
-    value(){
-        this.$db.load()
-        this.$table = Librarian.treeToTable(this.$db.tree)
+    value(req){
+        if(req === void 0 || typeof req === "string" && req.length !== 0){
+            if(req === void 0){
+                this.$db.load()
+                this.$table = Librarian.treeToTable(this.$db.tree)
+            } else {
+                if(req.indexOf('/') === -1){
+                    this.$db.load()
+                    this.$table = Librarian.treeToTable(this.$db.tree)
+                } else {
+                    const target = this.$db.search(req)
+                    if(target instanceof Folder){
+                        target.load()
+                        this.$table = Librarian.treeToTable(this.$db.tree)
+                    }
+                }
+            }
+            return
+        }
+        throw new TypeError("Librarian.load - invalid path")
     }
 })
 
@@ -116,8 +133,10 @@ Object.defineProperty(Librarian.prototype, 'borrow', {
             this.$borrowed.add(req)
             return new Book(this.$db.search(req), (newTitle) => {
                 this.$borrowed.delete(req)
-                this.rename(req, newTitle)
-                this.load()
+                if(newTitle && req.split('/').at(-1) !== newTitle){
+                    this.rename(req, newTitle)
+                    this.load(req.indexOf('/') === -1? void 0: req.split('/').slice(0, -1).join('/'))
+                }
             })
         }
         return null
@@ -130,6 +149,39 @@ Object.defineProperty(Librarian.prototype, 'read', {
         const doc = this.$db.search(req)
         if(doc instanceof Document)
             return doc.read()
+    }
+})
+
+// 로그 확인
+Object.defineProperty(Librarian.prototype, 'history', {
+    value(req){
+        const doc = this.$db.search(req)
+        if(doc instanceof Document)
+            return doc.getLog()
+    }
+})
+
+// 과거 버전 확인
+/**
+ * @returns {{
+ *    string title
+ *    string author
+ *    int change
+ *    Date date
+ *    string content
+ * }}
+ */
+Object.defineProperty(Librarian.prototype, 'reminisce', {
+    value(req, id){
+        const doc = this.$db.search(req)
+        if(doc instanceof Document){
+            const res = doc.getLog(id)
+            if(typeof res === "object"){
+                return Object.assign(res, {
+                    content: doc.reminisce(id)
+                })
+            }
+        }
     }
 })
 
@@ -163,7 +215,7 @@ Object.defineProperty(Librarian.prototype, 'createFolder', {
                 }
 
                 place(this.$db, path)
-                this.load()
+                this.load(path.join('/'))
             } else {
                 throw new TypeError("Librarian.createFolder - cannot use the title of such folder " + path.join('/'))
             }
@@ -184,18 +236,21 @@ Object.defineProperty(Librarian.prototype, 'createDocument', {
                 } else {
                     throw new TypeError("Librarian.createDocument - cannot use title of such document " + path)
                 }
+                this.load()
             } else {
                 path = path.split('/')
                 if(isUsableTitle(path.at(-1))){
                     let parent = path.slice(0, -1).join('/')
                     this.createFolder(parent)
                     const doc = new Document(this.path + '/' + path.join('/'))
-                    this.$db.search(parent).add(doc)
+                    const target = this.$db.search(parent)
+                    if(target.docs.indexOf(doc.title) === -1)
+                        target.add(doc)
                 } else {
                     throw new TypeError("Librarian.createDocument - cannot use title of such document " + path)
                 }
+                this.load(path.slice(0,-1).join('/'))
             }
-            this.load()
             return
         }
         throw new TypeError("Librarian.createDocument - invalid path " + path)
@@ -210,13 +265,14 @@ Object.defineProperty(Librarian.prototype, 'rename', {
             let res
             if(req.indexOf('/') === -1){
                 res = this.$db.renameSub(req, name)
+                this.load()
             } else {
                 req = req.split('/')
                 res = this.$db.search(req.slice(0, -1).join('/'))
                 if(res instanceof Folder) res = res.renameSub(req.at(-1), name)
                 else throw new ReferenceError("Librarian.rename - unexpected error; there's a datum at path " + req + ", however, it's neither Document nor Folder")
+                this.load(req.slice(0,-1).join('/'))
             }
-            this.load()
             return res
         }
         return false
@@ -296,6 +352,7 @@ Object.defineProperty(Book.prototype, 'return', {
         } else throw new Error("Book.return - it's returned!")
     }
 })
+
 
 
 

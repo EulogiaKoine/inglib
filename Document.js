@@ -21,7 +21,7 @@ module.exports = (function(){
 // 문서의 정보
 const schema = {
     title: null, // string
-    author: null, // 작성 저자 순서  -> 길이: 누적 수정 횟수, 마지막 저자: authors[-1]
+    author: null, // 마지막 작성 저자
     log: [] // 변경 기록
     /*
     log: [{
@@ -97,10 +97,14 @@ Object.defineProperty(Document.prototype, 'rename', {
             const prev = java.nio.file.Paths.get(this.path)
             this.path = this.path.split('/')
             this.path[this.path.length-1] = name
-            return java.nio.file.Files.move(
-                prev,
-                java.nio.file.Paths.get(this.path = this.path.join('/')),
-                java.nio.file.StandardCopyOption.ATOMIC_MOVE)
+            this.path = this.path.join('/')
+            if(java.nio.file.Files.exists(prev)){
+                return java.nio.file.Files.move(
+                    prev,
+                    java.nio.file.Paths.get(this.path),
+                    java.nio.file.StandardCopyOption.ATOMIC_MOVE)
+            }
+            return false
         } else {
             throw new TypeError("Document.rename - name must be a string")
         }
@@ -147,7 +151,8 @@ Object.defineProperty(Document.prototype, 'save', {
         // 로그 남기기
         const date = new Date()
         const content = this.$content.read()
-        this.info.log.push({
+        this.info.log.unshift({
+            title: this.info.title,
             author: this.info.author,
             change: (this.info.log.length
                 ? content.length - this.info.log.reduce((wordCount, currLog) => wordCount + currLog.change, 0) // 현재까지의 누적 변화의 합 = 마지막 글의 글자수
@@ -172,12 +177,25 @@ Object.defineProperty(Document.prototype, 'save', {
  * @returns {[{ author: string, change: number, date: Date}]}
  */
 Object.defineProperty(Document.prototype, 'getLog', {
-    value(){
-        return this.info.log.map(log => ({
-            author: log.author,
-            change: log.change,
-            date: new Date(log.date)
-        }))
+    value(id){
+        if(typeof id === "number"){
+            if(id in this.info.log){
+                const log = this.info.log[id]
+                return {
+                    title: log.title,
+                    author: log.author,
+                    change: log.change,
+                    date: new Date(log.date)
+                }
+            }
+        } else {
+            return this.info.log.map(log => ({
+                title: log.title,
+                author: log.author,
+                change: log.change,
+                date: new Date(log.date)
+            }))
+        }
     }
 })
 
@@ -186,7 +204,7 @@ Object.defineProperty(Document.prototype, 'getLog', {
 Object.defineProperty(Document.prototype, 'reminisce', {
     value(id){
         if(id in this.info.log){ // 개수는 맞으니까 괜찮
-            const log = this.info.log.at(-(id+1)) // 뒤에서부터
+            const log = this.info.log[id]
             return FileStream.read(generateLogFilePath(this.path, log.author, new Date(log.date)))
         }
         return null
@@ -197,8 +215,7 @@ Object.defineProperty(Document.prototype, 'reminisce', {
 Object.defineProperty(Document.prototype, 'removeLog', {
     value(id){
         if(id in this.info.log){
-            id = -(id + 1)
-            const log = this.info.log.at(id)
+            const log = this.info.log[id]
             this.info.log.splice(id, 1)
             FileStream.remove(generateLogFilePath(this.path, log.author, new Date(log.date)))
             return true
